@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Clock, AlertTriangle, CheckCircle, HelpCircle, Flag, ChevronLeft, ChevronRight,
-  Maximize2, Minimize2, Shield, Camera, Volume2, Save, Send, ArrowLeft, RefreshCw,
-  Info, Check, X, AlertCircle
+  Clock, AlertTriangle, CheckCircle, Flag, ChevronLeft, ChevronRight,
+  Maximize2, Minimize2, Shield, Save, Send
 } from 'lucide-react';
-import { mockExams, mockQuestions, simulateDelay } from '../../data/mockData';
 import { formatDuration } from '../../utils/validation';
 import { useAuth } from '../../context/AuthContext';
+import { examService } from '../../services/examService';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import toast from 'react-hot-toast';
@@ -33,57 +32,49 @@ const OnlineExam = () => {
   const [filterPalette, setFilterPalette] = useState('all');
   const [autoSaveStatus, setAutoSaveStatus] = useState('All changes saved');
   const [loading, setLoading] = useState(true);
+  const tabSwitchesRef = useRef(0);
+  const submissionStartedRef = useRef(false);
 
   // Initialize Exam & Questions
   useEffect(() => {
-    simulateDelay(500).then(() => {
-      const foundExam = mockExams.find(e => e.id === id) || mockExams[0];
-      const examQuestions = mockQuestions.filter(q => q.subjectId === foundExam.subjectId);
-      const activeQuestions = examQuestions.length > 0 ? examQuestions : mockQuestions;
-      
-      setExam(foundExam);
-      setQuestions(activeQuestions);
-      setTimeLeft(foundExam.duration * 60);
-      setLoading(false);
-    });
-  }, [id]);
+    let cancelled = false;
+    setLoading(true);
+    setExam(null);
+    setQuestions([]);
+    setIsSubmitted(false);
+    setSubmitResult(null);
+    setTabSwitches(0);
+    tabSwitchesRef.current = 0;
+    submissionStartedRef.current = false;
 
-  // Tab switch & proctoring detection
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && !isSubmitted) {
-        setTabSwitches(prev => {
-          const next = prev + 1;
-          toast.error(`Security Alert: Tab switch detected! (Violation #${next})`, { duration: 4000 });
-          return next;
-        });
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isSubmitted]);
-
-  // Auto-submit countdown timer
-  useEffect(() => {
-    if (loading || isSubmitted || timeLeft <= 0) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleFinalSubmit(true);
-          return 0;
+    examService.getById(id)
+      .then(async foundExam => {
+        if (!foundExam.isPublished) throw new Error('This exam has not been assigned to students yet.');
+        if (!foundExam.questionsData.length) throw new Error('This exam has no available questions.');
+        if (cancelled) return;
+        const existingSubmission = await examService.getStudentSubmission(foundExam.id, user?.id);
+        if (cancelled) return;
+        if (existingSubmission) {
+          navigate('/student/results', { replace: true });
+          toast.error('You have already submitted this exam. You cannot retake it.');
+          return;
         }
-        if (prev === 300) {
-          toast.error('5 minutes remaining! Please review your answers.', { duration: 5000 });
+        setExam(foundExam);
+        setQuestions(foundExam.questionsData);
+        setTimeLeft(foundExam.duration * 60);
+      })
+      .catch(error => {
+        if (!cancelled) {
+          toast.error(error.message || 'Failed to load examination');
+          navigate('/student/exams');
         }
-        return prev - 1;
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
-    }, 1000);
 
-    return () => clearInterval(timer);
-  }, [loading, isSubmitted, timeLeft]);
+    return () => { cancelled = true; };
+  }, [id, navigate, user?.id]);
 
   // Format timer into HH:MM:SS
   const formatTimer = (seconds) => {
@@ -141,6 +132,11 @@ const OnlineExam = () => {
   };
 
   const currentQ = questions[currentIndex];
+  const currentOptions = !currentQ?.options
+    ? []
+    : Array.isArray(currentQ.options)
+      ? currentQ.options.map((option, index) => [String.fromCharCode(65 + index), option])
+      : Object.entries(currentQ.options);
 
   // Helper statuses for question palette
   const getQuestionStatus = (idx) => {
@@ -162,13 +158,12 @@ const OnlineExam = () => {
   const flaggedCount = Object.values(flagged).filter(Boolean).length;
   const unattemptedCount = totalCount - answeredCount;
 
-  const handleFinalSubmit = async (auto = false) => {
+  const handleFinalSubmit = useCallback(async (auto = false, autoSubmitReason = '') => {
+    if (submissionStartedRef.current || isSubmitted || !exam) return;
+    submissionStartedRef.current = true;
     setIsSubmitting(true);
     setShowSubmitModal(false);
 
-    await simulateDelay(1200);
-
-    // Calculate score for auto-evaluable questions (MCQ, True/False)
     let score = 0;
     let maxObjectiveScore = 0;
 
@@ -177,33 +172,94 @@ const OnlineExam = () => {
         maxObjectiveScore += q.marks;
         if (answers[q.id] === q.correctAnswer) {
           score += q.marks;
-        } else if (answers[q.id] !== undefined && exam?.negativeMarking) {
+        } else if (answers[q.id] !== undefined && exam.negativeMarking) {
           score = Math.max(0, score - (exam.negativeMarksValue || 0.25));
         }
       }
     });
 
+    const switchCount = tabSwitchesRef.current;
     const resultData = {
       score,
       maxObjectiveScore,
-      totalMarks: exam?.totalMarks || 100,
+      totalMarks: exam.totalMarks || 100,
       answeredCount,
       unattemptedCount,
-      tabSwitches,
-      timeTakenSeconds: (exam?.duration * 60) - timeLeft,
+      tabSwitches: switchCount,
+      timeTakenSeconds: (exam.duration * 60) - timeLeft,
       submittedAt: new Date().toLocaleTimeString(),
+      autoSubmitted: auto,
+      autoSubmitReason,
     };
 
-    setSubmitResult(resultData);
-    setIsSubmitted(true);
-    setIsSubmitting(false);
+    try {
+      await examService.submitExam(exam.id, {
+        studentId: user?.id,
+        studentName: user?.name,
+        answers,
+        ...resultData,
+      });
+      setSubmitResult(resultData);
+      setIsSubmitted(true);
 
-    if (auto) {
-      toast.success('Exam auto-submitted as time expired.');
-    } else {
-      toast.success('Examination submitted successfully!');
+      if (autoSubmitReason === 'tab_switch_limit') {
+        toast.error('Exam automatically submitted after 4 tab switches.');
+      } else if (auto) {
+        toast.success('Exam auto-submitted as time expired.');
+      } else {
+        toast.success('Examination submitted successfully!');
+      }
+    } catch (error) {
+      submissionStartedRef.current = false;
+      toast.error(error.message || 'Could not save your exam submission. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
-  };
+  }, [answers, answeredCount, exam, isSubmitted, questions, timeLeft, unattemptedCount, user]);
+
+  useEffect(() => {
+    if (loading || isSubmitted) return undefined;
+    let wasHidden = document.hidden;
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        wasHidden = false;
+        return;
+      }
+      if (wasHidden || submissionStartedRef.current) return;
+      wasHidden = true;
+
+      const next = tabSwitchesRef.current + 1;
+      tabSwitchesRef.current = next;
+      setTabSwitches(next);
+      if (next > 3) {
+        toast.error('Tab switch limit exceeded. Submitting your exam now.', { duration: 5000 });
+        handleFinalSubmit(true, 'tab_switch_limit');
+      } else {
+        toast.error(`Tab switch ${next} of 3. The 4th switch will submit your exam.`, { duration: 4000 });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [handleFinalSubmit, isSubmitted, loading]);
+
+  useEffect(() => {
+    if (loading || isSubmitted || submissionStartedRef.current || timeLeft <= 0) return undefined;
+
+    const timer = setTimeout(() => {
+      if (timeLeft <= 1) {
+        setTimeLeft(0);
+        handleFinalSubmit(true, 'time_expired');
+        return;
+      }
+      if (timeLeft === 300) {
+        toast.error('5 minutes remaining! Please review your answers.', { duration: 5000 });
+      }
+      setTimeLeft(prev => prev - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [handleFinalSubmit, isSubmitted, loading, timeLeft]);
 
   if (loading) {
     return (
@@ -223,9 +279,11 @@ const OnlineExam = () => {
             <CheckCircle size={44} />
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Examination Submitted Successfully!</h2>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            {submitResult.autoSubmitReason === 'tab_switch_limit' ? 'Exam Auto-Submitted' : 'Examination Submitted Successfully!'}
+          </h2>
           <p className="text-gray-500 text-sm max-w-md mx-auto mb-6">
-            Your responses for <span className="font-semibold text-gray-800">{exam?.title}</span> have been recorded securely in the academic portal.
+            Your responses for <span className="font-semibold text-gray-800">{exam?.title}</span> have been saved in this browser.
           </p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 text-left">
@@ -250,7 +308,10 @@ const OnlineExam = () => {
           {submitResult.tabSwitches > 0 && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-xs flex items-center justify-center gap-2 mb-6">
               <AlertTriangle size={16} className="text-amber-600" />
-              <span>Proctoring Alert: {submitResult.tabSwitches} window/tab switch events recorded for faculty review.</span>
+              <span>
+                {submitResult.tabSwitches} tab switch{submitResult.tabSwitches === 1 ? '' : 'es'} recorded.
+                {submitResult.autoSubmitReason === 'tab_switch_limit' && ' The 3-switch limit was exceeded, so the exam was submitted.'}
+              </span>
             </div>
           )}
 
@@ -294,11 +355,11 @@ const OnlineExam = () => {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 bg-blue-900/60 px-3 py-1.5 rounded-lg border border-blue-800">
             <Shield size={16} className="text-emerald-400" />
-            <span className="text-xs font-semibold tracking-wide text-blue-100">PROCTORED EXAM</span>
+            <span className="text-xs font-semibold tracking-wide text-blue-100">EXAM IN PROGRESS</span>
           </div>
           <div>
             <h1 className="text-sm font-bold text-white leading-none">{exam?.title}</h1>
-            <p className="text-xs text-blue-300 mt-0.5">{exam?.subjectName} ({exam?.code})</p>
+            <p className="text-xs text-blue-300 mt-0.5">{exam?.subjectName} ({exam?.code || exam?.id})</p>
           </div>
         </div>
 
@@ -372,7 +433,7 @@ const OnlineExam = () => {
 
                 {/* Question Statement */}
                 <div className="text-gray-900 text-base font-medium leading-relaxed mb-6">
-                  {currentQ.questionText}
+                  {currentQ.text || currentQ.questionText}
                 </div>
 
                 {/* Question Options / Inputs based on Type */}
@@ -380,12 +441,12 @@ const OnlineExam = () => {
                   {/* Single Choice MCQ */}
                   {currentQ.type === 'mcq' && (
                     <div className="space-y-2.5">
-                      {currentQ.options?.map((opt, oIdx) => {
-                        const isSelected = answers[currentQ.id] === opt;
+                      {currentOptions.map(([optionKey, opt], oIdx) => {
+                        const isSelected = answers[currentQ.id] === optionKey;
                         return (
                           <label
-                            key={oIdx}
-                            onClick={() => handleAnswerChange(currentQ.id, opt)}
+                            key={optionKey}
+                            onClick={() => handleAnswerChange(currentQ.id, optionKey)}
                             className={`flex items-center gap-3.5 p-3.5 rounded-xl border cursor-pointer transition-all ${
                               isSelected
                                 ? 'bg-blue-50 border-blue-600 text-blue-900 shadow-sm'
@@ -396,7 +457,7 @@ const OnlineExam = () => {
                               type="radio"
                               name={`question-${currentQ.id}`}
                               checked={isSelected}
-                              onChange={() => {}}
+                              onChange={() => handleAnswerChange(currentQ.id, optionKey)}
                               className="w-4 h-4 text-blue-800 focus:ring-blue-800"
                             />
                             <span className="font-semibold text-xs text-gray-400 w-5">
@@ -433,7 +494,7 @@ const OnlineExam = () => {
                   )}
 
                   {/* Fill In Blank */}
-                  {currentQ.type === 'fill_blank' && (
+                  {(currentQ.type === 'fill_blank' || currentQ.type === 'short_answer') && (
                     <div className="space-y-2">
                       <label className="text-xs font-semibold text-gray-600">Type your answer below:</label>
                       <input
@@ -522,27 +583,24 @@ const OnlineExam = () => {
 
         {/* Right Sidebar: Proctoring feed & Question Palette */}
         <div className="w-full lg:w-80 bg-white border-l border-gray-200 p-5 flex flex-col gap-5 overflow-y-auto">
-          {/* Proctoring Camera Feed Mockup */}
-          <div className="bg-gray-900 rounded-xl overflow-hidden shadow-inner border border-gray-800 relative">
-            <div className="aspect-video bg-gray-950 flex flex-col items-center justify-center relative p-3 text-center">
-              <div className="w-16 h-16 rounded-full border-2 border-dashed border-emerald-400 flex items-center justify-center bg-gray-900/60 mb-2">
-                <Camera size={24} className="text-emerald-400 animate-pulse" />
-              </div>
-              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                ● AI Proctor Active
+          {/* Browser visibility monitoring */}
+          <div className="bg-blue-950 text-white rounded-xl p-4 border border-blue-900">
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-sm flex items-center gap-2"><Shield size={15} /> Tab-switch monitor</h4>
+              <span className={`text-xs font-bold ${tabSwitches >= 3 ? 'text-red-300' : 'text-emerald-300'}`}>
+                {tabSwitches}/3 used
               </span>
-              <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded text-[10px] text-gray-300">
-                <Volume2 size={11} className="text-emerald-400" /> Mic: Normal
-              </div>
-              <div className="absolute top-2 right-2 bg-black/60 px-2 py-0.5 rounded text-[10px] text-gray-300">
-                {user?.name?.split(' ')[0] || 'Student'}
-              </div>
             </div>
-            {tabSwitches > 0 && (
-              <div className="bg-red-600 text-white text-[11px] px-3 py-1 text-center font-bold">
-                Tab Switches: {tabSwitches} Warning(s)
-              </div>
-            )}
+            <div className="h-2 rounded-full bg-blue-800 mt-3 overflow-hidden">
+              <div
+                className={`h-full transition-all ${tabSwitches >= 3 ? 'bg-red-400' : 'bg-emerald-400'}`}
+                style={{ width: `${Math.min(tabSwitches / 3, 1) * 100}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-blue-200 mt-2">
+              {tabSwitches >= 3 ? 'One more switch will submit the exam.' : 'Up to 3 switches are allowed. The 4th automatically submits.'}
+            </p>
+            <p className="text-[10px] text-blue-300 mt-1">Uses browser tab visibility; this is not full remote proctoring.</p>
           </div>
 
           {/* Question Summary Stats */}

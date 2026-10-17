@@ -3,14 +3,15 @@ import { BookOpen, Calendar, Clock, Award, AlertCircle, CheckCircle, Search, Fil
 import { useNavigate } from 'react-router-dom';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
-import { mockExams, simulateDelay, formatDate } from '../../data/mockData';
+import { formatDate } from '../../data/mockData';
 import { formatTime, formatDuration, getStatusColor } from '../../utils/validation';
+import { examService } from '../../services/examService';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const AvailableExams = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
@@ -19,13 +20,13 @@ const AvailableExams = () => {
   const [instructionModal, setInstructionModal] = useState({ open: false, exam: null });
 
   useEffect(() => {
-    simulateDelay(400).then(() => {
-      setExams(mockExams.filter(e => e.isPublished));
-      setLoading(false);
-    });
-  }, []);
+    examService.getAvailableForStudent(user?.id)
+      .then(setExams)
+      .catch(error => toast.error(error.message || 'Failed to load examinations'))
+      .finally(() => setLoading(false));
+  }, [user?.id]);
 
-  const subjects = ['all', ...new Set(mockExams.map(e => e.subjectName))];
+  const subjects = ['all', ...new Set(exams.map(e => e.subjectName))];
 
   const filteredExams = exams.filter(exam => {
     const matchesTab =
@@ -37,7 +38,7 @@ const AvailableExams = () => {
     const matchesSearch =
       exam.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       exam.subjectName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      exam.code.toLowerCase().includes(searchQuery.toLowerCase());
+      (exam.code || exam.id).toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesSubject = selectedSubject === 'all' || exam.subjectName === selectedSubject;
 
@@ -45,6 +46,10 @@ const AvailableExams = () => {
   });
 
   const handleStartExam = (exam) => {
+    if (exam.hasSubmitted) {
+      toast.error('You have already submitted this exam and cannot retake it.');
+      return;
+    }
     setInstructionModal({ open: true, exam });
   };
 
@@ -142,7 +147,7 @@ const AvailableExams = () => {
               <div className="p-5">
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <span className="text-xs font-mono font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-100">
-                    {exam.code}
+                    {exam.code || exam.id}
                   </span>
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${getStatusColor(exam.status)}`}>
                     {exam.status.charAt(0).toUpperCase() + exam.status.slice(1)}
@@ -165,7 +170,7 @@ const AvailableExams = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-gray-500"><Award size={13} /> Total Marks</span>
-                    <span className="font-medium text-gray-800">{exam.totalMarks} (Pass: {exam.passMarks})</span>
+                    <span className="font-medium text-gray-800">{exam.totalMarks} (Pass: {exam.passingMarks ?? exam.passMarks})</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-gray-500"><AlertCircle size={13} /> Questions</span>
@@ -182,7 +187,14 @@ const AvailableExams = () => {
               </div>
 
               <div className="px-5 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-                {exam.status === 'completed' ? (
+                {exam.hasSubmitted ? (
+                  <button
+                    onClick={() => navigate('/student/results')}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                  >
+                    <CheckCircle size={14} /> Submitted · View Result
+                  </button>
+                ) : exam.status === 'completed' ? (
                   <button
                     onClick={() => navigate('/student/results')}
                     className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -223,7 +235,7 @@ const AvailableExams = () => {
               <h4 className="font-semibold text-blue-900 mb-1">Examination Overview</h4>
               <div className="grid grid-cols-2 gap-2 text-xs text-blue-800">
                 <p><strong>Subject:</strong> {instructionModal.exam.subjectName}</p>
-                <p><strong>Code:</strong> {instructionModal.exam.code}</p>
+                <p><strong>Code:</strong> {instructionModal.exam.code || instructionModal.exam.id}</p>
                 <p><strong>Duration:</strong> {formatDuration(instructionModal.exam.duration)}</p>
                 <p><strong>Total Marks:</strong> {instructionModal.exam.totalMarks} Marks</p>
               </div>
@@ -232,8 +244,8 @@ const AvailableExams = () => {
             <div className="space-y-2.5">
               <h4 className="font-bold text-gray-800">Rules & Code of Conduct:</h4>
               <ul className="space-y-2 list-disc pl-5 text-xs text-gray-600">
-                <li>This is an automated proctored examination. Ensure your camera and microphone remain active throughout.</li>
-                <li>Do not switch tabs, minimize the browser window, or open background applications. Any switch is logged as a violation.</li>
+                <li>Tab switches are monitored while this exam page is hidden. You may switch tabs up to 3 times; the 4th switch automatically submits your exam.</li>
+                <li>Tab monitoring uses browser visibility events and cannot detect every form of outside assistance.</li>
                 <li>Each question has an allotted marks weightage indicated on the top right.</li>
                 <li>You can flag questions for review and revisit them using the question navigation palette before final submission.</li>
                 <li>Once you click <strong>"Final Submit"</strong>, your answers will be committed and cannot be altered.</li>

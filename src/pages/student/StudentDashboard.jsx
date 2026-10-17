@@ -2,20 +2,65 @@ import React, { useState, useEffect } from 'react';
 import { BookOpen, CheckCircle, TrendingUp, Award, Calendar, Clock, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/StatCard';
-import { mockDashboardStats, mockExams, mockResults, simulateDelay, formatDate } from '../../data/mockData';
+import { mockDashboardStats, mockResults, formatDate, getGrade } from '../../data/mockData';
 import { formatTime, formatDuration, getStatusColor } from '../../utils/validation';
 import { useAuth } from '../../context/AuthContext';
+import { examService } from '../../services/examService';
+import toast from 'react-hot-toast';
 
 const StudentDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [exams, setExams] = useState([]);
+  const [recentResults, setRecentResults] = useState([]);
   const stats = mockDashboardStats.student;
 
-  useEffect(() => { simulateDelay(600).then(() => setLoading(false)); }, []);
+  useEffect(() => {
+    Promise.all([
+      examService.getAvailableForStudent(user?.id),
+      examService.getStudentSubmissions(user?.id),
+      examService.getAll(),
+    ])
+      .then(([availableExams, submissions, allExams]) => {
+        setExams(availableExams);
+        const examById = new Map(allExams.map(exam => [exam.id, exam]));
+        const submittedResults = submissions.map(submission => {
+          const exam = examById.get(submission.examId);
+          const totalMarks = submission.totalMarks || exam?.totalMarks || 0;
+          const marksObtained = submission.score || 0;
+          const percentage = totalMarks ? Math.round((marksObtained / totalMarks) * 100) : 0;
+          const needsEvaluation = (submission.maxObjectiveScore || 0) < totalMarks;
+          return {
+            id: submission.id,
+            examId: submission.examId,
+            examTitle: exam?.title || 'Examination',
+            subject: exam?.subjectName || '—',
+            marksObtained,
+            totalMarks,
+            percentage,
+            grade: needsEvaluation ? 'Pending' : getGrade(percentage),
+            status: needsEvaluation
+              ? 'pending'
+              : marksObtained >= (exam?.passingMarks ?? exam?.passMarks ?? totalMarks * 0.4) ? 'pass' : 'fail',
+            submittedAt: submission.submittedAt,
+          };
+        });
+        const submittedExamIds = new Set(submittedResults.map(result => result.examId));
+        const savedMockResults = mockResults.filter(result =>
+          result.studentId === user?.id && !submittedExamIds.has(result.examId)
+        );
+        setRecentResults([...submittedResults, ...savedMockResults].sort(
+          (a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)
+        ).slice(0, 3));
+      })
+      .catch(error => toast.error(error.message || 'Failed to load your examinations'))
+      .finally(() => setLoading(false));
+  }, [user?.id]);
 
-  const upcomingExams = mockExams.filter(e => e.isPublished && e.status === 'upcoming').slice(0, 3);
-  const myResults = mockResults.filter(r => r.studentId === (user?.id || 'STU001'));
+  const allUpcomingExams = exams.filter(e => e.status === 'upcoming' && !e.hasSubmitted);
+  const upcomingExams = allUpcomingExams.slice(0, 3);
+  const myResults = recentResults;
 
   return (
     <div className="space-y-6">
@@ -25,7 +70,7 @@ const StudentDashboard = () => {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Upcoming Exams" value={loading ? '—' : stats.upcomingExams} icon={Calendar} color="blue" subtitle="Scheduled for you" />
+        <StatCard title="Upcoming Exams" value={loading ? '—' : allUpcomingExams.length} icon={Calendar} color="blue" subtitle="Scheduled for you" />
         <StatCard title="Completed Exams" value={loading ? '—' : stats.completedExams} icon={CheckCircle} color="green" subtitle="Attended so far" />
         <StatCard title="Average Score" value={loading ? '—' : `${stats.averageScore}%`} icon={TrendingUp} color="indigo" subtitle="Overall average" />
         <StatCard title="Overall Grade" value={loading ? '—' : stats.overallGrade} icon={Award} color="orange" subtitle="Based on performance" />
@@ -91,7 +136,8 @@ const StudentDashboard = () => {
             {myResults.slice(0, 3).map(result => (
               <div key={result.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold flex-shrink-0 ${
-                  result.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  result.status === 'pass' ? 'bg-green-100 text-green-700' :
+                    result.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                 }`}>
                   {result.grade}
                 </div>
@@ -103,8 +149,11 @@ const StudentDashboard = () => {
                   <p className="font-bold text-gray-800">{result.marksObtained}/{result.totalMarks}</p>
                   <p className="text-xs text-gray-500">{result.percentage}%</p>
                 </div>
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${result.status === 'pass' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {result.status.toUpperCase()}
+                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                  result.status === 'pass' ? 'bg-green-100 text-green-700' :
+                    result.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {result.status === 'pending' ? 'PENDING' : result.status.toUpperCase()}
                 </span>
               </div>
             ))}

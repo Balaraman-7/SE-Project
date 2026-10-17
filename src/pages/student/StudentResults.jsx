@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Award, CheckCircle, XCircle, Eye, Printer, Download, Search, Filter, TrendingUp, Calendar, BookOpen, AlertCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
-import { mockResults, mockExams, mockQuestions, simulateDelay, formatDate } from '../../data/mockData';
+import { mockResults, formatDate, getGrade } from '../../data/mockData';
 import { useAuth } from '../../context/AuthContext';
 import { UNIVERSITY_NAME } from '../../utils/constants';
+import { examService } from '../../services/examService';
 import toast from 'react-hot-toast';
 
 const StudentResults = () => {
@@ -17,14 +18,59 @@ const StudentResults = () => {
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
-    simulateDelay(400).then(() => {
-      const studentId = user?.id || 'STU001';
-      // If student results exist in mockData or populate fallback
-      const userRes = mockResults.filter(r => r.studentId === studentId || r.studentName?.toLowerCase().includes(user?.name?.toLowerCase() || ''));
-      setResults(userRes.length > 0 ? userRes : mockResults.slice(0, 5));
-      setLoading(false);
-    });
-  }, [user]);
+    let cancelled = false;
+    const loadResults = async () => {
+      setLoading(true);
+      try {
+        const studentId = user?.id;
+        if (!studentId) {
+          setResults([]);
+          return;
+        }
+        const [submissions, exams] = await Promise.all([
+          examService.getStudentSubmissions(studentId),
+          examService.getAll(),
+        ]);
+        const examById = new Map(exams.map(exam => [exam.id, exam]));
+        const submittedResults = submissions.map(submission => {
+          const exam = examById.get(submission.examId);
+          const totalMarks = submission.totalMarks || exam?.totalMarks || 0;
+          const marksObtained = submission.score || 0;
+          const maxObjectiveScore = submission.maxObjectiveScore || 0;
+          const percentage = totalMarks > 0 ? Math.round((marksObtained / totalMarks) * 100) : 0;
+          const needsEvaluation = maxObjectiveScore < totalMarks;
+          const passingMarks = exam?.passingMarks ?? exam?.passMarks ?? Math.ceil(totalMarks * 0.4);
+
+          return {
+            ...submission,
+            examTitle: exam?.title || 'Examination',
+            subject: exam?.subjectName || '—',
+            totalMarks,
+            marksObtained,
+            percentage,
+            grade: needsEvaluation ? 'Pending' : getGrade(percentage),
+            status: needsEvaluation ? 'pending' : marksObtained >= passingMarks ? 'pass' : 'fail',
+            isSubmission: true,
+          };
+        });
+        const submittedExamIds = new Set(submittedResults.map(result => result.examId));
+        const savedMockResults = mockResults.filter(result =>
+          result.studentId === studentId && !submittedExamIds.has(result.examId)
+        );
+        if (!cancelled) {
+          setResults([...submittedResults, ...savedMockResults].sort(
+            (a, b) => new Date(b.submittedAt) - new Date(a.submittedAt)
+          ));
+        }
+      } catch (error) {
+        if (!cancelled) toast.error(error.message || 'Failed to load your exam results');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadResults();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const filteredResults = results.filter(r => {
     const matchesSearch =
@@ -36,12 +82,13 @@ const StudentResults = () => {
 
   // Calculate statistics
   const totalExams = results.length;
+  const evaluatedResults = results.filter(r => r.status !== 'pending');
   const passedExams = results.filter(r => r.status === 'pass').length;
-  const avgPercentage = totalExams > 0
-    ? (results.reduce((acc, r) => acc + r.percentage, 0) / totalExams).toFixed(1)
+  const avgPercentage = evaluatedResults.length > 0
+    ? (evaluatedResults.reduce((acc, r) => acc + r.percentage, 0) / evaluatedResults.length).toFixed(1)
     : 0;
-  const highestScore = totalExams > 0
-    ? Math.max(...results.map(r => r.percentage))
+  const highestScore = evaluatedResults.length > 0
+    ? Math.max(...evaluatedResults.map(r => r.percentage))
     : 0;
 
   const handleViewScorecard = (result) => {
@@ -73,7 +120,7 @@ const StudentResults = () => {
             <BookOpen size={22} />
           </div>
           <div>
-            <p className="text-xs text-gray-500 font-medium">Total Evaluated</p>
+            <p className="text-xs text-gray-500 font-medium">Exams Submitted</p>
             <p className="text-2xl font-bold text-gray-800">{loading ? '—' : totalExams}</p>
           </div>
         </div>
@@ -131,6 +178,7 @@ const StudentResults = () => {
             <option value="all">All Results</option>
             <option value="pass">Passed</option>
             <option value="fail">Failed</option>
+            <option value="pending">Pending evaluation</option>
           </select>
         </div>
       </div>
@@ -168,7 +216,7 @@ const StudentResults = () => {
                   <tr key={r.id} className="hover:bg-gray-50/80 transition-colors">
                     <td className="px-6 py-4 font-semibold text-gray-800">{r.examTitle}</td>
                     <td className="px-6 py-4 text-gray-600">{r.subject}</td>
-                    <td className="px-6 py-4 text-xs text-gray-500">{formatDate(r.submittedAt || '2026-03-20')}</td>
+                    <td className="px-6 py-4 text-xs text-gray-500">{formatDate(r.submittedAt)}</td>
                     <td className="px-6 py-4 text-center font-bold text-gray-800">
                       {r.marksObtained} <span className="text-xs text-gray-400 font-normal">/ {r.totalMarks}</span>
                     </td>
@@ -182,12 +230,12 @@ const StudentResults = () => {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-semibold ${
-                        r.status === 'pass'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
+                        r.status === 'pass' ? 'bg-green-100 text-green-800' :
+                          r.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
                       }`}>
-                        {r.status === 'pass' ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                        {r.status.toUpperCase()}
+                        {r.status === 'pass' ? <CheckCircle size={12} /> :
+                          r.status === 'pending' ? <AlertCircle size={12} /> : <XCircle size={12} />}
+                        {r.status === 'pending' ? 'PENDING EVALUATION' : r.status.toUpperCase()}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -226,7 +274,7 @@ const StudentResults = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-xl text-xs border border-gray-200">
               <div>
                 <p className="text-gray-400">Student Name</p>
-                <p className="font-bold text-gray-800">{user?.name || selectedResult.studentName || 'Student Candidate'}</p>
+                <p className="font-bold text-gray-800">{selectedResult.studentName || user?.name || 'Student Candidate'}</p>
               </div>
               <div>
                 <p className="text-gray-400">Student Roll ID</p>
@@ -257,16 +305,31 @@ const StudentResults = () => {
               </div>
 
               <div className={`p-4 rounded-xl border text-center ${
-                selectedResult.status === 'pass' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                selectedResult.status === 'pass' ? 'bg-green-50 border-green-200' :
+                  selectedResult.status === 'pending' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
               }`}>
-                <p className={`text-xs font-medium ${selectedResult.status === 'pass' ? 'text-green-700' : 'text-red-700'}`}>
+                <p className={`text-xs font-medium ${
+                  selectedResult.status === 'pass' ? 'text-green-700' :
+                    selectedResult.status === 'pending' ? 'text-amber-700' : 'text-red-700'
+                }`}>
                   Final Grade & Status
                 </p>
-                <p className={`text-2xl font-black mt-1 ${selectedResult.status === 'pass' ? 'text-green-800' : 'text-red-800'}`}>
+                <p className={`text-2xl font-black mt-1 ${
+                  selectedResult.status === 'pass' ? 'text-green-800' :
+                    selectedResult.status === 'pending' ? 'text-amber-800' : 'text-red-800'
+                }`}>
                   {selectedResult.grade} ({selectedResult.status.toUpperCase()})
                 </p>
               </div>
             </div>
+
+            {selectedResult.isSubmission && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                Preliminary score includes automatically evaluated questions only.
+                {selectedResult.tabSwitches > 0 && ` Tab switches recorded: ${selectedResult.tabSwitches}.`}
+                {selectedResult.autoSubmitReason === 'tab_switch_limit' && ' This exam was automatically submitted after the tab-switch limit was exceeded.'}
+              </div>
+            )}
 
             {/* Section Breakdown */}
             <div className="space-y-3">
@@ -282,20 +345,37 @@ const StudentResults = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    <tr>
-                      <td className="p-3 font-medium text-gray-800">Section A (Objective & MCQs)</td>
-                      <td className="p-3 text-center text-gray-600">15 / 15</td>
-                      <td className="p-3 text-center font-bold text-emerald-700">14.0 / 15</td>
-                      <td className="p-3 text-right text-gray-500">Auto-evaluated</td>
-                    </tr>
-                    <tr>
-                      <td className="p-3 font-medium text-gray-800">Section B (Descriptive & Analytical)</td>
-                      <td className="p-3 text-center text-gray-600">3 / 3</td>
-                      <td className="p-3 text-center font-bold text-blue-700">
-                        {selectedResult.marksObtained > 15 ? (selectedResult.marksObtained - 14) : 0} / 15
-                      </td>
-                      <td className="p-3 text-right text-gray-500">Evaluated by Faculty</td>
-                    </tr>
+                    {selectedResult.isSubmission ? (
+                      <>
+                        <tr>
+                          <td className="p-3 font-medium text-gray-800">Automatically evaluated questions</td>
+                          <td className="p-3 text-center text-gray-600">{selectedResult.maxObjectiveScore} marks possible</td>
+                          <td className="p-3 text-center font-bold text-emerald-700">
+                            {selectedResult.marksObtained} / {selectedResult.maxObjectiveScore}
+                          </td>
+                          <td className="p-3 text-right text-gray-500">Auto-evaluated</td>
+                        </tr>
+                        {selectedResult.status === 'pending' && (
+                          <tr>
+                            <td className="p-3 font-medium text-gray-800">Remaining questions</td>
+                            <td className="p-3 text-center text-gray-600">
+                              {Math.max(0, selectedResult.totalMarks - selectedResult.maxObjectiveScore)} marks possible
+                            </td>
+                            <td className="p-3 text-center font-bold text-amber-700">Pending</td>
+                            <td className="p-3 text-right text-gray-500">Awaiting evaluation</td>
+                          </tr>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <tr>
+                          <td className="p-3 font-medium text-gray-800">Section A (Objective & MCQs)</td>
+                          <td className="p-3 text-center text-gray-600">{selectedResult.answers?.length || 0}</td>
+                          <td className="p-3 text-center font-bold text-emerald-700">{selectedResult.marksObtained} / {selectedResult.totalMarks}</td>
+                          <td className="p-3 text-right text-gray-500">Recorded result</td>
+                        </tr>
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>

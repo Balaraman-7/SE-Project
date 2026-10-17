@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { ChevronRight, ChevronLeft, Check, Plus, Minus, Search } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Check, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { mockQuestions, mockSubjects, simulateDelay } from '../../data/mockData';
+import { mockSubjects, mockStudents } from '../../data/mockData';
 import { EXAM_TYPE_LABELS, QUESTION_TYPE_LABELS, DIFFICULTY_LEVELS } from '../../utils/constants';
 import { getDifficultyColor } from '../../utils/validation';
 import { examService } from '../../services/examService';
+import { questionService } from '../../services/questionService';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const STEPS = ['Basic Information', 'Select Questions', 'Schedule', 'Review & Create'];
@@ -16,15 +18,23 @@ const initialForm = {
 
 const CreateExam = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
+  const [questions, setQuestions] = useState([]);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
-  const [qFilter, setQFilter] = useState({ search: '', subject: '', type: '', difficulty: '' });
+  const [qFilter, setQFilter] = useState({ search: '', type: '', difficulty: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  const filteredQ = mockQuestions.filter(q => {
-    if (qFilter.subject && q.subject !== qFilter.subject) return false;
+  React.useEffect(() => {
+    questionService.getAll()
+      .then(setQuestions)
+      .catch(error => toast.error(error.message || 'Failed to load the question bank'));
+  }, []);
+
+  const filteredQ = questions.filter(q => {
+    if (q.subject !== form.subject) return false;
     if (qFilter.type && q.type !== qFilter.type) return false;
     if (qFilter.difficulty && q.difficulty !== qFilter.difficulty) return false;
     if (qFilter.search && !q.text.toLowerCase().includes(qFilter.search.toLowerCase())) return false;
@@ -51,6 +61,9 @@ const CreateExam = () => {
       if (!form.passingMarks) e.passingMarks = 'Passing marks is required';
     }
     if (step === 1 && selectedQuestions.length === 0) e.questions = 'Select at least one question';
+    if (step === 1 && Number(form.passingMarks) > totalSelectedMarks) {
+      e.passingMarks = 'Passing marks cannot exceed the total marks of selected questions';
+    }
     if (step === 2) {
       if (!form.date) e.date = 'Exam date is required';
       if (!form.startTime) e.startTime = 'Start time is required';
@@ -76,9 +89,10 @@ const CreateExam = () => {
         questions: selectedQuestions.map(q => q.id),
         totalQuestions: selectedQuestions.length,
         subjectName: mockSubjects.find(s => s.id === form.subject)?.name || '',
-        faculty: 'FAC001',
-        facultyName: 'Prof. Meena Sharma',
-        enrolledStudents: 0,
+        faculty: user?.id || '',
+        facultyName: user?.name || '',
+        assignedTo: 'all',
+        enrolledStudents: mockStudents.filter(student => student.status === 'active').length,
       });
       toast.success('Examination created successfully!');
       navigate('/faculty/exams');
@@ -136,7 +150,10 @@ const CreateExam = () => {
             </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Subject" error={errors.subject} required>
-                <select value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} className={`w-full px-3 py-2.5 border rounded-lg text-sm ${errors.subject ? 'border-red-400' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-600`}>
+                <select value={form.subject} onChange={e => {
+                  setForm({ ...form, subject: e.target.value });
+                  setSelectedQuestions([]);
+                }} className={`w-full px-3 py-2.5 border rounded-lg text-sm ${errors.subject ? 'border-red-400' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-600`}>
                   <option value="">Select subject</option>
                   {mockSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
@@ -176,10 +193,9 @@ const CreateExam = () => {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
                 <input placeholder="Search..." value={qFilter.search} onChange={e => setQFilter({ ...qFilter, search: e.target.value })} className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs w-44 focus:outline-none focus:ring-2 focus:ring-blue-600" />
               </div>
-              <select value={qFilter.subject} onChange={e => setQFilter({ ...qFilter, subject: e.target.value })} className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600">
-                <option value="">All Subjects</option>
-                {mockSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              <span className="px-2 py-1.5 bg-gray-100 rounded-lg text-xs text-gray-600">
+                Subject: {mockSubjects.find(s => s.id === form.subject)?.name || 'Select a subject'}
+              </span>
               <select value={qFilter.type} onChange={e => setQFilter({ ...qFilter, type: e.target.value })} className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-600">
                 <option value="">All Types</option>
                 {Object.entries(QUESTION_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -191,6 +207,11 @@ const CreateExam = () => {
             </div>
 
             <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+              {filteredQ.length === 0 && (
+                <p className="p-4 text-sm text-gray-500 text-center">
+                  No questions found for this subject. Add questions in the Question Bank first.
+                </p>
+              )}
               {filteredQ.map(q => (
                 <div key={q.id} onClick={() => toggleQ(q)} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${isSelected(q.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${isSelected(q.id) ? 'bg-blue-800 border-blue-800' : 'border-gray-300'}`}>
@@ -254,6 +275,7 @@ const CreateExam = () => {
                   { label: 'Total Questions', value: selectedQuestions.length },
                   { label: 'Total Marks', value: totalSelectedMarks },
                   { label: 'Passing Marks', value: form.passingMarks },
+                  { label: 'Assigned To', value: 'All students (visible after publishing)' },
                   { label: 'Exam Date', value: form.date },
                   { label: 'Start Time', value: form.startTime },
                   { label: 'End Time', value: form.endTime || 'Not set' },

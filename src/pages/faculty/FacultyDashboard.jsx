@@ -2,19 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { HelpCircle, BookOpen, ClipboardCheck, Edit3, TrendingUp } from 'lucide-react';
 import StatCard from '../../components/StatCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { mockDashboardStats, mockExams, mockExamPerformanceData, simulateDelay, formatDate } from '../../data/mockData';
+import { mockDashboardStats, mockExamPerformanceData, formatDate } from '../../data/mockData';
 import { getStatusColor, formatDuration, formatTime } from '../../utils/validation';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { examService } from '../../services/examService';
+import toast from 'react-hot-toast';
 
 const FacultyDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [myExams, setMyExams] = useState([]);
   const stats = mockDashboardStats.faculty;
-  const myExams = mockExams.filter(e => e.faculty === user?.id);
 
-  useEffect(() => { simulateDelay(600).then(() => setLoading(false)); }, []);
+  useEffect(() => {
+    examService.getAll({ faculty: user?.id })
+      .then(setMyExams)
+      .catch(error => toast.error(error.message || 'Failed to load your examinations'))
+      .finally(() => setLoading(false));
+  }, [user?.id]);
 
   return (
     <div className="space-y-6">
@@ -97,7 +104,7 @@ const FacultyDashboard = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {(myExams.length > 0 ? myExams : mockExams).slice(0, 5).map(exam => (
+              {myExams.slice(0, 5).map(exam => (
                 <tr key={exam.id} className="hover:bg-gray-50">
                   <td className="px-5 py-3">
                     <p className="font-medium text-gray-800">{exam.title}</p>
@@ -118,6 +125,13 @@ const FacultyDashboard = () => {
                   </td>
                 </tr>
               ))}
+              {!loading && myExams.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-gray-500">
+                    You have not created any examinations yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
