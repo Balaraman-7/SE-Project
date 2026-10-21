@@ -38,7 +38,7 @@ const StudentResults = () => {
           const marksObtained = submission.score || 0;
           const maxObjectiveScore = submission.maxObjectiveScore || 0;
           const percentage = totalMarks > 0 ? Math.round((marksObtained / totalMarks) * 100) : 0;
-          const needsEvaluation = maxObjectiveScore < totalMarks;
+          const needsEvaluation = !submission.evaluatedAt && maxObjectiveScore < totalMarks;
           const passingMarks = exam?.passingMarks ?? exam?.passMarks ?? Math.ceil(totalMarks * 0.4);
 
           return {
@@ -48,8 +48,10 @@ const StudentResults = () => {
             totalMarks,
             marksObtained,
             percentage,
-            grade: needsEvaluation ? 'Pending' : getGrade(percentage),
-            status: needsEvaluation ? 'pending' : marksObtained >= passingMarks ? 'pass' : 'fail',
+            grade: needsEvaluation ? 'Pending' : submission.grade || getGrade(percentage),
+            status: needsEvaluation
+              ? 'pending'
+              : submission.resultStatus || (marksObtained >= passingMarks ? 'pass' : 'fail'),
             isSubmission: true,
           };
         });

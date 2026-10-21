@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Save, CheckCircle } from 'lucide-react';
-import { mockResults, mockExams, mockQuestions, simulateDelay } from '../../data/mockData';
 import { QUESTION_TYPE_LABELS } from '../../utils/constants';
+import { examService } from '../../services/examService';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const Evaluation = () => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pendingResults, setPendingResults] = useState([]);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -14,57 +16,78 @@ const Evaluation = () => {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    simulateDelay(600).then(() => {
-      // Get results with descriptive questions
-      const results = mockResults.filter(r =>
-        r.answers.some(a => {
-          const q = mockQuestions.find(q => q.id === a.questionId);
-          return q && ['descriptive', 'short_answer'].includes(q.type);
-        })
-      );
-      setPendingResults(results);
-      // Initialize marks/comments from existing evaluations
-      if (results[0]) {
-        const initMarks = {};
-        const initComments = {};
-        results[0].answers.forEach(a => {
-          initMarks[a.questionId] = a.marksObtained || 0;
-          initComments[a.questionId] = a.facultyComment || '';
-        });
-        setMarks(initMarks);
-        setComments(initComments);
-      }
-      setLoading(false);
-    });
-  }, []);
+    let cancelled = false;
+    examService.getPendingEvaluations(user?.id)
+      .then(results => {
+        if (cancelled) return;
+        setPendingResults(results);
+        const firstResult = results[0];
+        if (firstResult) {
+          const initialMarks = {};
+          const initialComments = {};
+          firstResult.answers.forEach(answer => {
+            const evaluation = firstResult.evaluations[answer.questionId];
+            if (evaluation) initialMarks[answer.questionId] = evaluation.marks;
+            initialComments[answer.questionId] = evaluation?.comment || '';
+          });
+          setMarks(initialMarks);
+          setComments(initialComments);
+        }
+      })
+      .catch(error => {
+        if (!cancelled) toast.error(error.message || 'Failed to load submitted answers for evaluation');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const currentResult = pendingResults[currentIdx];
 
-  const getQuestion = (qId) => mockQuestions.find(q => q.id === qId);
-
-  const isDescriptive = (qId) => {
-    const q = getQuestion(qId);
-    return q && ['descriptive', 'short_answer'].includes(q.type);
-  };
-
-  const isObjective = (qId) => {
-    const q = getQuestion(qId);
-    return q && ['mcq', 'true_false', 'fill_blank'].includes(q.type);
-  };
+  const isDescriptive = (type) => ['code', 'descriptive', 'short_answer', 'fill_blank'].includes(type);
 
   const handleSave = async () => {
     setSaving(true);
-    await simulateDelay(600);
-    toast.success('Evaluation saved successfully');
-    setSaving(false);
+    try {
+      const evaluations = Object.fromEntries(
+        Object.keys(marks).map(questionId => [
+          questionId,
+          { marks: marks[questionId], comment: comments[questionId] || '' },
+        ])
+      );
+      await examService.saveEvaluation(currentResult.id, evaluations);
+      toast.success('Evaluation saved successfully');
+    } catch (error) {
+      toast.error(error.message || 'Failed to save evaluation');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSubmit = async () => {
+    const manualQuestions = currentResult.answers.filter(answer => isDescriptive(answer.question.type));
+    if (manualQuestions.some(answer => marks[answer.questionId] === undefined || marks[answer.questionId] === '')) {
+      toast.error('Assign marks to every written and coding answer before submitting.');
+      return;
+    }
+
     setSaving(true);
-    await simulateDelay(700);
-    toast.success('Evaluation submitted and result published!');
-    setSubmitted(true);
-    setSaving(false);
+    try {
+      const evaluations = Object.fromEntries(
+        manualQuestions.map(answer => [
+          answer.questionId,
+          { marks: marks[answer.questionId], comment: comments[answer.questionId] || '' },
+        ])
+      );
+      await examService.saveEvaluation(currentResult.id, evaluations, true);
+      toast.success('Evaluation submitted and result published!');
+      setSubmitted(true);
+    } catch (error) {
+      toast.error(error.message || 'Failed to submit evaluation');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const navigateStudent = (dir) => {
@@ -75,8 +98,9 @@ const Evaluation = () => {
       const initMarks = {};
       const initComments = {};
       result.answers.forEach(a => {
-        initMarks[a.questionId] = a.marksObtained || 0;
-        initComments[a.questionId] = a.facultyComment || '';
+        const evaluation = result.evaluations[a.questionId];
+        if (evaluation) initMarks[a.questionId] = evaluation.marks;
+        initComments[a.questionId] = evaluation?.comment || '';
       });
       setMarks(initMarks);
       setComments(initComments);
@@ -85,11 +109,11 @@ const Evaluation = () => {
   };
 
   const totalDescriptiveMarks = currentResult?.answers
-    .filter(a => isDescriptive(a.questionId))
-    .reduce((sum, a) => sum + (getQuestion(a.questionId)?.marks || 0), 0) || 0;
+    .filter(a => isDescriptive(a.question.type))
+    .reduce((sum, a) => sum + a.question.marks, 0) || 0;
 
   const givenDescriptiveMarks = Object.entries(marks)
-    .filter(([qId]) => isDescriptive(qId))
+    .filter(([qId]) => currentResult?.answers.some(answer => answer.questionId === qId && isDescriptive(answer.question.type)))
     .reduce((sum, [, m]) => sum + (parseFloat(m) || 0), 0);
 
   if (loading) {
@@ -104,8 +128,8 @@ const Evaluation = () => {
     return (
       <div className="text-center py-20">
         <CheckCircle size={48} className="text-green-500 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-gray-800">All evaluations complete!</h2>
-        <p className="text-gray-500 mt-2">No pending evaluations at this time.</p>
+        <h2 className="text-xl font-semibold text-gray-800">No pending evaluations</h2>
+        <p className="text-gray-500 mt-2">Student written and coding answers will appear here after they submit an exam.</p>
       </div>
     );
   }
@@ -119,7 +143,7 @@ const Evaluation = () => {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">
-            Student {currentIdx + 1} of {pendingResults.length}
+            Submission {currentIdx + 1} of {pendingResults.length}
           </span>
           <div className="flex gap-1">
             <button onClick={() => navigateStudent(-1)} disabled={currentIdx === 0} className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-40">
@@ -152,7 +176,7 @@ const Evaluation = () => {
           {/* Progress */}
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5">
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-blue-900 font-semibold">Descriptive Evaluation Progress</span>
+              <span className="text-blue-900 font-semibold">Written & Coding Evaluation Progress</span>
               <span className="font-bold text-blue-900">{givenDescriptiveMarks} / {totalDescriptiveMarks} marks assigned</span>
             </div>
             <div className="w-full bg-blue-200/80 rounded-full h-2.5 overflow-hidden">
@@ -168,10 +192,12 @@ const Evaluation = () => {
           {/* Answers */}
           <div className="space-y-5">
             {currentResult.answers.map((answer, idx) => {
-              const question = getQuestion(answer.questionId);
-              if (!question) return null;
-              const isDesc = isDescriptive(answer.questionId);
-              const isObj = isObjective(answer.questionId);
+              const question = answer.question;
+              const isDesc = isDescriptive(question.type);
+              const isObj = ['mcq', 'true_false'].includes(question.type);
+              const submittedAnswer = answer.answer === '' || answer.answer === undefined
+                ? '(No answer provided)'
+                : answer.answer;
 
               return (
                 <div key={answer.questionId} className={`rounded-xl border p-4 ${isDesc ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
@@ -191,7 +217,16 @@ const Evaluation = () => {
 
                   <div className="bg-white rounded-lg p-3 border border-gray-200 mb-3">
                     <p className="text-xs text-gray-500 mb-1">Student's Answer:</p>
-                    <p className="text-sm text-gray-800">{answer.answer || '(No answer provided)'}</p>
+                    {question.type === 'code' && answer.answer ? (
+                      <>
+                        <p className="text-xs font-medium text-gray-500 mb-2">
+                          Language: {(answer.language || 'Not selected').toUpperCase()}
+                        </p>
+                        <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-gray-950 p-3 font-mono text-xs text-green-100">{answer.answer}</pre>
+                      </>
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm text-gray-800">{submittedAnswer}</p>
+                    )}
                   </div>
 
                   {isObj && (
@@ -215,10 +250,10 @@ const Evaluation = () => {
                           max={question.marks}
                           value={marks[answer.questionId] !== undefined ? marks[answer.questionId] : ''}
                           onChange={e => {
-                            const val = parseFloat(e.target.value);
+                            const val = e.target.value === '' ? '' : parseFloat(e.target.value);
                             setMarks(prev => ({
                               ...prev,
-                              [answer.questionId]: isNaN(val) ? '' : Math.min(question.marks, Math.max(0, val))
+                              [answer.questionId]: val === '' || isNaN(val) ? '' : Math.min(question.marks, Math.max(0, val))
                             }));
                           }}
                           className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -254,7 +289,7 @@ const Evaluation = () => {
               </button>
               {currentIdx < pendingResults.length - 1 && (
                 <button onClick={() => navigateStudent(1)} className="flex items-center gap-2 px-4 py-2 bg-blue-800 text-white rounded-lg text-sm hover:bg-blue-900 ml-auto">
-                  Next Student <ChevronRight size={15} />
+                  Next Submission <ChevronRight size={15} />
                 </button>
               )}
             </div>
@@ -266,7 +301,7 @@ const Evaluation = () => {
               </div>
               {currentIdx < pendingResults.length - 1 && (
                 <button onClick={() => navigateStudent(1)} className="flex items-center gap-2 px-4 py-2 bg-blue-800 text-white rounded-lg text-sm hover:bg-blue-900 ml-auto">
-                  Next Student <ChevronRight size={15} />
+                  Next Submission <ChevronRight size={15} />
                 </button>
               )}
             </div>

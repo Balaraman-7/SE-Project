@@ -42,12 +42,13 @@ const QuestionBank = () => {
   const isObjective = ['mcq', 'true_false'].includes(form.type);
   const isMCQ = form.type === 'mcq';
   const isTrueFalse = form.type === 'true_false';
+  const isCode = form.type === 'code';
 
   const validate = () => {
     const e = {};
     if (!form.text.trim()) e.text = 'Question text is required';
     if (!form.subject) e.subject = 'Subject is required';
-    if (!form.correctAnswer.trim()) e.correctAnswer = 'Correct answer is required';
+    if (!isCode && !form.correctAnswer.trim()) e.correctAnswer = 'Correct answer is required';
     if (isMCQ && (!form.options.A || !form.options.B || !form.options.C || !form.options.D))
       e.options = 'All 4 options are required for MCQ';
     return e;
@@ -247,7 +248,9 @@ const QuestionBank = () => {
 
           {/* Correct Answer */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Correct Answer <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {isCode ? 'Coding evaluation' : 'Correct Answer'} {!isCode && <span className="text-red-500">*</span>}
+            </label>
             {isMCQ ? (
               <select value={form.correctAnswer} onChange={e => setForm({ ...form, correctAnswer: e.target.value })} className={`w-full px-3 py-2.5 border rounded-lg text-sm ${errors.correctAnswer ? 'border-red-400' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-600`}>
                 <option value="">Select correct option</option>
@@ -259,6 +262,10 @@ const QuestionBank = () => {
                 <option value="True">True</option>
                 <option value="False">False</option>
               </select>
+            ) : isCode ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                Student code answers are saved for evaluation. Automatic code execution is not configured yet.
+              </p>
             ) : (
               <textarea value={form.correctAnswer} onChange={e => setForm({ ...form, correctAnswer: e.target.value })} rows={2} placeholder="Enter the correct answer or model answer..." className={`w-full px-3 py-2.5 border rounded-lg text-sm resize-none ${errors.correctAnswer ? 'border-red-400' : 'border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-600`} />
             )}

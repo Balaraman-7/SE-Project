@@ -20,6 +20,7 @@ const OnlineExam = () => {
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [codeLanguages, setCodeLanguages] = useState({});
   const [flagged, setFlagged] = useState({});
   const [visited, setVisited] = useState({ 0: true });
   const [timeLeft, setTimeLeft] = useState(3600); // 60 mins default
@@ -41,6 +42,8 @@ const OnlineExam = () => {
     setLoading(true);
     setExam(null);
     setQuestions([]);
+    setAnswers({});
+    setCodeLanguages({});
     setIsSubmitted(false);
     setSubmitResult(null);
     setTabSwitches(0);
@@ -197,6 +200,7 @@ const OnlineExam = () => {
         studentId: user?.id,
         studentName: user?.name,
         answers,
+        codeLanguages,
         ...resultData,
       });
       setSubmitResult(resultData);
@@ -215,7 +219,7 @@ const OnlineExam = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [answers, answeredCount, exam, isSubmitted, questions, timeLeft, unattemptedCount, user]);
+  }, [answers, answeredCount, codeLanguages, exam, isSubmitted, questions, timeLeft, unattemptedCount, user]);
 
   useEffect(() => {
     if (loading || isSubmitted) return undefined;
@@ -521,6 +525,67 @@ const OnlineExam = () => {
                         onChange={(e) => handleAnswerChange(currentQ.id, e.target.value)}
                         className="w-full p-3.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent font-normal resize-y"
                       />
+                    </div>
+                  )}
+
+                  {currentQ.type === 'code' && (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {currentQ.inputFormat && (
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <p className="mb-1 text-xs font-semibold text-gray-700">Input format</p>
+                            <p className="whitespace-pre-wrap text-xs text-gray-600">{currentQ.inputFormat}</p>
+                          </div>
+                        )}
+                        {currentQ.outputFormat && (
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <p className="mb-1 text-xs font-semibold text-gray-700">Output format</p>
+                            <p className="whitespace-pre-wrap text-xs text-gray-600">{currentQ.outputFormat}</p>
+                          </div>
+                        )}
+                      </div>
+                      {(currentQ.sampleInput || currentQ.sampleOutput) && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {currentQ.sampleInput && (
+                            <div>
+                              <p className="mb-1 text-xs font-semibold text-gray-600">Sample input</p>
+                              <pre className="overflow-x-auto rounded-lg bg-gray-950 p-3 text-xs text-gray-100">{currentQ.sampleInput}</pre>
+                            </div>
+                          )}
+                          {currentQ.sampleOutput && (
+                            <div>
+                              <p className="mb-1 text-xs font-semibold text-gray-600">Sample output</p>
+                              <pre className="overflow-x-auto rounded-lg bg-gray-950 p-3 text-xs text-gray-100">{currentQ.sampleOutput}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <label className="block space-y-1">
+                        <span className="text-xs font-semibold text-gray-600">Programming language</span>
+                        <select
+                          value={codeLanguages[currentQ.id] || currentQ.languages?.[0] || 'python'}
+                          onChange={event => setCodeLanguages(prev => ({ ...prev, [currentQ.id]: event.target.value }))}
+                          className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-800"
+                        >
+                          {(currentQ.languages || ['python', 'java', 'cpp', 'c']).map(language => (
+                            <option key={language} value={language}>{language.toUpperCase()}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-xs font-semibold text-gray-600">Your code</span>
+                        <textarea
+                          rows={14}
+                          spellCheck={false}
+                          value={answers[currentQ.id] || ''}
+                          onChange={event => handleAnswerChange(currentQ.id, event.target.value)}
+                          placeholder="Write your solution here..."
+                          className="w-full rounded-xl border border-gray-300 bg-gray-950 p-4 font-mono text-sm text-green-100 focus:outline-none focus:ring-2 focus:ring-blue-800"
+                        />
+                      </label>
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                        Code execution is not available yet. Your solution will be saved for evaluation when a secure coding runner is connected; no code marks are awarded automatically at this time.
+                      </p>
                     </div>
                   )}
                 </div>

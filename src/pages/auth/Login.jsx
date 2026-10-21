@@ -11,11 +11,17 @@ const ROLES_LIST = [
   { role: 'admin', label: 'Admin', email: 'admin@university.edu', password: 'admin123' },
 ];
 
+const STUDENT_ACCOUNTS = [
+  { label: 'Arjun Patel (STU001)', email: 'student@university.edu', password: 'student123' },
+  { label: 'Priya Singh (STU002)', email: 'priya.singh@university.edu', password: 'priya123' },
+];
+
 const Login = () => {
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
   const [selectedRole, setSelectedRole] = useState('student');
+  const [selectedStudentEmail, setSelectedStudentEmail] = useState(STUDENT_ACCOUNTS[0].email);
   const [formData, setFormData] = useState({
     email: 'student@university.edu',
     password: 'student123',
@@ -34,6 +40,17 @@ const Login = () => {
 
   const handleRoleSelect = (roleItem) => {
     setSelectedRole(roleItem.role);
+    if (roleItem.role === 'student') {
+      const studentAccount = STUDENT_ACCOUNTS[0];
+      setSelectedStudentEmail(studentAccount.email);
+      setFormData((prev) => ({
+        ...prev,
+        email: studentAccount.email,
+        password: studentAccount.password,
+      }));
+      setErrors({});
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       email: roleItem.email,
@@ -114,6 +131,34 @@ const Login = () => {
               </button>
             ))}
           </div>
+
+          {selectedRole === 'student' && (
+            <div className="mb-4">
+              <label htmlFor="studentAccount" className="block text-xs font-semibold text-slate-700 mb-1">
+                Demo student account
+              </label>
+              <select
+                id="studentAccount"
+                value={selectedStudentEmail}
+                onChange={(event) => {
+                  const studentAccount = STUDENT_ACCOUNTS.find(account => account.email === event.target.value);
+                  if (!studentAccount) return;
+                  setSelectedStudentEmail(studentAccount.email);
+                  setFormData(prev => ({
+                    ...prev,
+                    email: studentAccount.email,
+                    password: studentAccount.password,
+                  }));
+                  setErrors({});
+                }}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-800"
+              >
+                {STUDENT_ACCOUNTS.map(account => (
+                  <option key={account.email} value={account.email}>{account.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {errors.general && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg p-3 mb-4">

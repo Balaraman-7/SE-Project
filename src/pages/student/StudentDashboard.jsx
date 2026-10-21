@@ -30,7 +30,7 @@ const StudentDashboard = () => {
           const totalMarks = submission.totalMarks || exam?.totalMarks || 0;
           const marksObtained = submission.score || 0;
           const percentage = totalMarks ? Math.round((marksObtained / totalMarks) * 100) : 0;
-          const needsEvaluation = (submission.maxObjectiveScore || 0) < totalMarks;
+          const needsEvaluation = !submission.evaluatedAt && (submission.maxObjectiveScore || 0) < totalMarks;
           return {
             id: submission.id,
             examId: submission.examId,
@@ -39,10 +39,12 @@ const StudentDashboard = () => {
             marksObtained,
             totalMarks,
             percentage,
-            grade: needsEvaluation ? 'Pending' : getGrade(percentage),
+            grade: needsEvaluation ? 'Pending' : submission.grade || getGrade(percentage),
             status: needsEvaluation
               ? 'pending'
-              : marksObtained >= (exam?.passingMarks ?? exam?.passMarks ?? totalMarks * 0.4) ? 'pass' : 'fail',
+              : submission.resultStatus || (
+                marksObtained >= (exam?.passingMarks ?? exam?.passMarks ?? totalMarks * 0.4) ? 'pass' : 'fail'
+              ),
             submittedAt: submission.submittedAt,
           };
         });

@@ -10,6 +10,7 @@ export const QUESTION_TYPES = {
   FILL_BLANK: 'fill_blank',
   SHORT_ANSWER: 'short_answer',
   DESCRIPTIVE: 'descriptive',
+  CODE: 'code',
 };
 
 export const QUESTION_TYPE_LABELS = {
@@ -18,6 +19,7 @@ export const QUESTION_TYPE_LABELS = {
   fill_blank: 'Fill in the Blank',
   short_answer: 'Short Answer',
   descriptive: 'Descriptive',
+  code: 'Coding Problem',
 };
 
 export const EXAM_TYPES = {

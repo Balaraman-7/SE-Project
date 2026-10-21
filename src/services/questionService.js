@@ -10,7 +10,15 @@ const loadQuestions = () => {
   if (!Array.isArray(parsedQuestions)) {
     throw new Error('Saved questions data is invalid. Clear the exam_questions browser storage and try again.');
   }
-  return parsedQuestions;
+  const storedIds = new Set(parsedQuestions.map(question => question.id));
+  const newSampleQuestions = mockQuestions.filter(
+    question => (question.id.startsWith('QUIZ') || question.id.startsWith('CODE')) && !storedIds.has(question.id)
+  );
+  const mergedQuestions = [...parsedQuestions, ...newSampleQuestions];
+  if (newSampleQuestions.length) {
+    localStorage.setItem(QUESTIONS_STORAGE_KEY, JSON.stringify(mergedQuestions));
+  }
+  return mergedQuestions;
 };
 
 let questions = loadQuestions();
