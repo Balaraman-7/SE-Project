@@ -130,7 +130,7 @@ const LandingPage = () => {
               href="#portals"
               className="flex items-center gap-2 px-6 py-3.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-50 hover:border-slate-400 transition-all shadow-xs"
             >
-              Explore Demo Portals
+              Explore Portals
             </a>
           </div>
 
@@ -141,7 +141,7 @@ const LandingPage = () => {
                 <div className="w-3 h-3 rounded-full bg-red-400" />
                 <div className="w-3 h-3 rounded-full bg-amber-400" />
                 <div className="w-3 h-3 rounded-full bg-emerald-400" />
-                <span className="text-xs font-mono text-slate-400 ml-2">examportal.university.edu/dashboard</span>
+                <span className="text-xs font-mono text-slate-400 ml-2">examportal.edu/dashboard</span>
               </div>
               <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-200">
                 ● Live Academic Session
@@ -377,14 +377,14 @@ const LandingPage = () => {
             </div>
 
             <div>
-              <h4 className="text-white font-bold mb-2 uppercase tracking-wider text-[11px]">Institution</h4>
-              <p className="text-slate-300">{UNIVERSITY_NAME}</p>
+              <h4 className="text-white font-bold mb-2 uppercase tracking-wider text-[11px]">Contact & Support</h4>
+              <p className="text-slate-300">Examination Administration</p>
               <p className="text-slate-400 mt-1">support@examportal.edu</p>
             </div>
           </div>
 
           <div className="border-t border-slate-800 pt-6 text-center text-xs text-slate-500">
-            © {new Date().getFullYear()} {UNIVERSITY_NAME} — {APP_FULL_NAME}. All rights reserved.
+            © {new Date().getFullYear()} {APP_FULL_NAME}. All rights reserved.
           </div>
         </div>
       </footer>

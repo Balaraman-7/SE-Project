@@ -36,8 +36,7 @@ const facultyNav = [
 
 const studentNav = [
   { label: 'Dashboard', path: '/student/dashboard', icon: LayoutDashboard },
-  { label: 'Available Exams', path: '/student/exams', icon: BookOpen },
-  { label: 'My Exams', path: '/student/my-exams', icon: ClipboardList },
+  { label: 'Examinations', path: '/student/exams', icon: BookOpen },
   { label: 'Results', path: '/student/results', icon: Award },
   { label: 'Performance', path: '/student/performance', icon: TrendingUp },
   { label: 'Notifications', path: '/student/notifications', icon: Bell },

@@ -72,4 +72,4 @@ export const GRADES = {
 
 export const APP_NAME = 'ExamPortal';
 export const APP_FULL_NAME = 'Online Examination and Evaluation System';
-export const UNIVERSITY_NAME = 'National Institute of Technology';
+export const UNIVERSITY_NAME = 'Academic Examination Portal';

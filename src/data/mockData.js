@@ -360,7 +360,7 @@ export const mockResults = [
     evaluatedAt: '2024-11-11T10:00:00',
     answers: [
       { questionId: 'Q004', answer: 'fetching', isCorrect: true, marksObtained: 1, maxMarks: 1 },
-      { questionId: 'Q005', answer: 'Deadlock is a state where processes are blocked...', isCorrect: null, marksObtained: 15, maxMarks: 10, facultyComment: 'Good explanation but missed the Banker\'s algorithm' },
+      { questionId: 'Q005', answer: 'Deadlock is a state where processes are blocked...', isCorrect: null, marksObtained: 8, maxMarks: 10, facultyComment: 'Good explanation but missed the Banker\'s algorithm' },
       { questionId: 'Q010', answer: 'A process is a program in execution...', isCorrect: null, marksObtained: 8, maxMarks: 10, facultyComment: 'Decent answer, needed more examples' },
     ],
   },

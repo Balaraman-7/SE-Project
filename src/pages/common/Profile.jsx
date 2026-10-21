@@ -12,11 +12,11 @@ const Profile = () => {
   const [profileData, setProfileData] = useState({
     name: user?.name || 'Administrator',
     email: user?.email || 'admin@university.edu',
-    phone: '+1 (555) 349-2910',
+    phone: user?.phone || '+91 9876543210',
     department: user?.role === 'student' ? 'Computer Science & Engineering' : user?.role === 'faculty' ? 'Information Technology' : 'Academic Administration',
     role: user?.role || 'admin',
-    enrollmentId: user?.role === 'student' ? 'STU-2024-8842' : user?.role === 'faculty' ? 'FAC-8021' : 'ADM-001',
-    bio: 'Academic profile dedicated to excellence and interactive learning.',
+    enrollmentId: user?.id || (user?.role === 'student' ? 'STU-2024-8842' : user?.role === 'faculty' ? 'FAC-8021' : 'ADM-001'),
+    bio: 'Dedicated to academic excellence and continuous learning.',
   });
 
   const [passwords, setPasswords] = useState({

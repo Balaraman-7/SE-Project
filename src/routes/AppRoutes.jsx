@@ -100,7 +100,7 @@ const AppRoutes = () => {
         <Route index element={<Navigate to="/student/dashboard" replace />} />
         <Route path="dashboard" element={<StudentDashboard />} />
         <Route path="exams" element={<AvailableExams />} />
-        <Route path="my-exams" element={<AvailableExams />} />
+        <Route path="my-exams" element={<Navigate to="/student/exams" replace />} />
         <Route path="results" element={<StudentResults />} />
         <Route path="performance" element={<StudentPerformance />} />
         <Route path="notifications" element={<Notifications />} />

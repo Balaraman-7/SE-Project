@@ -150,13 +150,18 @@ const Evaluation = () => {
           </div>
 
           {/* Progress */}
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-5">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-blue-700 font-medium">Descriptive Evaluation Progress</span>
-              <span className="font-bold text-blue-800">{givenDescriptiveMarks} / {totalDescriptiveMarks} marks assigned</span>
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="text-blue-900 font-semibold">Descriptive Evaluation Progress</span>
+              <span className="font-bold text-blue-900">{givenDescriptiveMarks} / {totalDescriptiveMarks} marks assigned</span>
             </div>
-            <div className="mt-2 bg-blue-200 rounded-full h-2">
-              <div className="bg-blue-800 h-2 rounded-full transition-all" style={{ width: `${totalDescriptiveMarks ? (givenDescriptiveMarks / totalDescriptiveMarks) * 100 : 0}%` }} />
+            <div className="w-full bg-blue-200/80 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-blue-900 h-2.5 rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, Math.max(0, totalDescriptiveMarks > 0 ? (givenDescriptiveMarks / totalDescriptiveMarks) * 100 : 0))}%`,
+                }}
+              />
             </div>
           </div>
 
@@ -209,7 +214,13 @@ const Evaluation = () => {
                           min={0}
                           max={question.marks}
                           value={marks[answer.questionId] !== undefined ? marks[answer.questionId] : ''}
-                          onChange={e => setMarks(prev => ({ ...prev, [answer.questionId]: parseFloat(e.target.value) || 0 }))}
+                          onChange={e => {
+                            const val = parseFloat(e.target.value);
+                            setMarks(prev => ({
+                              ...prev,
+                              [answer.questionId]: isNaN(val) ? '' : Math.min(question.marks, Math.max(0, val))
+                            }));
+                          }}
                           className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
                           disabled={submitted}
                         />
